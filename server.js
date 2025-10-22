@@ -229,12 +229,12 @@ app.post('/api/waitlist', rateLimitMiddleware, async (req, res) => {
         console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
         
         // Handle duplicate contact error
-        if (error.response && error.response.body && error.response.body.code === 'duplicate_parameter') {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'This email is already on the waitlist!' 
-            });
-        }
+        if (error.response && (error.response.body?.code === 'duplicate_parameter' || error.response.data?.code === 'duplicate_parameter')) {
+    return res.status(400).json({ 
+        success: false, 
+        message: 'This email is already on the waitlist!' 
+    });
+}
 
         res.status(500).json({ 
             success: false, 
