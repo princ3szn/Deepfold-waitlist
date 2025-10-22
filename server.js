@@ -4,15 +4,18 @@ const SibApiV3Sdk = require('@getbrevo/brevo');
 require('dotenv').config();
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
 // Security: Rate limiting to prevent abuse
 const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
 const MAX_REQUESTS_PER_WINDOW = 3; // 3 attempts per minute per IP
 
-// Middleware - Production CORS only
+// Middleware
 app.use(cors({
-    origin: ['https://deepfold-waitlist.vercel.app', 'https://your-custom-domain.com'],
+    origin: process.env.NODE_ENV === 'production' 
+        ? ['https://deepfold-waitlist.vercel.app', 'https://deepfold.com']
+        : ['http://localhost:3000', 'http://127.0.0.1:3000'],
     methods: ['GET', 'POST'],
     credentials: true
 }));
@@ -78,7 +81,6 @@ function rateLimitMiddleware(req, res, next) {
     requests.push(now);
     rateLimitMap.set(ip, requests);
     
-    // Cleanup old entries
     if (Math.random() < 0.01) {
         for (const [key, times] of rateLimitMap.entries()) {
             const validTimes = times.filter(time => now - time < RATE_LIMIT_WINDOW);
@@ -126,7 +128,7 @@ app.post('/api/waitlist', rateLimitMiddleware, async (req, res) => {
         // Create contact in Brevo
         const createContact = new SibApiV3Sdk.CreateContact();
         createContact.email = email;
-        createContact.listIds = [4]; // Deepfold list ID
+        createContact.listIds = [4];
         createContact.updateEnabled = false; // Reject duplicates
 
         await apiInstance.createContact(createContact);
@@ -138,7 +140,7 @@ app.post('/api/waitlist', rateLimitMiddleware, async (req, res) => {
         const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
         sendSmtpEmail.sender = { 
             name: 'Deepfold', 
-            email: process.env.SENDER_EMAIL
+            email: process.env.SENDER_EMAIL || 'deepfold.025@gmail.com'
         };
         sendSmtpEmail.to = [{ email: email }];
         sendSmtpEmail.subject = 'Welcome to Deepfold Waitlist!';
@@ -188,7 +190,7 @@ app.post('/api/waitlist', rateLimitMiddleware, async (req, res) => {
 
     } catch (error) {
         // Handle duplicate contact
-        if (error.response?.body?.code === 'duplicate_parameter' || 
+        if (error.response?.body?.code === 'duplicate_parameter' ||
             error.response?.body?.message?.toLowerCase().includes('contact already exist') ||
             error.response?.body?.message?.toLowerCase().includes('already exists')) {
             return res.status(400).json({ 
@@ -197,7 +199,7 @@ app.post('/api/waitlist', rateLimitMiddleware, async (req, res) => {
             });
         }
 
-        // Handle unauthorized (API key issue)
+        // Handle unauthorized
         if (error.response?.status === 401 || error.response?.statusCode === 401) {
             return res.status(500).json({ 
                 success: false, 
@@ -205,7 +207,6 @@ app.post('/api/waitlist', rateLimitMiddleware, async (req, res) => {
             });
         }
 
-        // Generic error
         res.status(500).json({ 
             success: false, 
             message: 'Something went wrong. Please try again.' 
@@ -213,5 +214,12 @@ app.post('/api/waitlist', rateLimitMiddleware, async (req, res) => {
     }
 });
 
-// Export for Vercel serverless
+// Start server (works for both local and Vercel)
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
+}
+
+// Export for Vercel
 module.exports = app;
