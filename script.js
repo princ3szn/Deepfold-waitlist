@@ -4,6 +4,11 @@ const emailInput = document.getElementById('emailInput');
 const statusMessage = document.getElementById('statusMessage');
 const submitButton = form.querySelector('button[type="submit"]');
 
+// Determine API URL based on environment
+const API_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:3000' 
+    : window.location.origin;
+
 // Security: Client-side email validation
 function validateEmail(email) {
     const emailRegex = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
@@ -16,8 +21,6 @@ form.addEventListener('submit', async (e) => {
     
     const email = emailInput.value.trim();
     
-    console.log('🔵 Form submitted with email:', email);
-    
     // Validate email on client side first
     if (!email || !validateEmail(email)) {
         showMessage('Please enter a valid email address', 'error');
@@ -29,10 +32,8 @@ form.addEventListener('submit', async (e) => {
     submitButton.textContent = 'Joining...';
 
     try {
-        console.log('🔵 Sending request to server...');
-        
         // Send to backend
-        const response = await fetch('http://localhost:3000/api/waitlist', {
+        const response = await fetch(`${API_URL}/api/waitlist`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -40,23 +41,67 @@ form.addEventListener('submit', async (e) => {
             body: JSON.stringify({ email })
         });
 
-        console.log('🔵 Response status:', response.status);
-        
+        // Handle response
+        if (!response.ok) {
+            // Try to get error message from server
+            let errorMessage = 'Something went wrong. Please try again.';
+            
+            try {
+                const errorData = await response.json();
+                if (errorData.message) {
+                    errorMessage = errorData.message;
+                }
+            } catch (e) {
+                // If parsing fails, use generic message
+            }
+
+            // Handle specific error codes
+            if (response.status === 429) {
+                errorMessage = 'Too many attempts. Please wait a moment and try again.';
+            } else if (response.status === 400) {
+                // Keep the server's message for validation errors
+            } else if (response.status >= 500) {
+                errorMessage = 'Our servers are experiencing issues. Please try again in a few moments.';
+            }
+
+            showMessage(errorMessage, 'error');
+            return;
+        }
+
         const data = await response.json();
-        console.log('🔵 Response data:', data);
 
         if (data.success) {
             showMessage('Success! Check your email to confirm your spot on the waitlist.', 'success');
             emailInput.value = '';
+            
+            // Optional: Track conversion with analytics
+            if (window.gtag) {
+                gtag('event', 'waitlist_signup', {
+                    'event_category': 'engagement',
+                    'event_label': 'email_submitted'
+                });
+            }
         } else {
-            showMessage(data.message || 'Something went wrong. Please try again.', 'error');
+            showMessage(data.message || 'Unable to process your request. Please try again.', 'error');
         }
 
     } catch (error) {
-        console.error('🔴 Network error:', error);
-        showMessage('Could not connect to server. Make sure the server is running on port 3000.', 'error');
+        // Network errors or other unexpected issues
+        console.error('Error:', error);
+        
+        // User-friendly error message
+        let userMessage = 'Unable to connect. Please check your internet connection and try again.';
+        
+        // Different messages for different scenarios
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            userMessage = 'Connection failed. Please check your internet and try again.';
+        } else if (error.name === 'AbortError') {
+            userMessage = 'Request timed out. Please try again.';
+        }
+        
+        showMessage(userMessage, 'error');
     } finally {
-        // Re-enable button
+        // Always re-enable button
         submitButton.disabled = false;
         submitButton.textContent = 'Join Waitlist';
     }
